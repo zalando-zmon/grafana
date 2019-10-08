@@ -7,7 +7,7 @@ aliases = ["/datasources/opentsdb",	"docs/features/opentsdb"]
 [menu.docs]
 name = "OpenTSDB"
 parent = "datasources"
-weight = 5
+weight = 19
 +++
 
 # Using OpenTSDB in Grafana
@@ -28,10 +28,9 @@ Name | Description
 *Name* | The data source name. This is how you refer to the data source in panels & queries.
 *Default* | Default data source means that it will be pre-selected for new panels.
 *Url* | The http protocol, ip and port of you opentsdb server (default port is usually 4242)
-*Access* | Proxy = access via Grafana backend, Direct = access directly from browser.
+*Access* | Server (default) = URL needs to be accessible from the Grafana backend/server, Browser = URL needs to be accessible from the browser.
 *Version* | Version = opentsdb version, either <=2.1 or 2.2
 *Resolution* | Metrics from opentsdb may have datapoints with either second or millisecond resolution.
-
 
 ## Query editor
 
@@ -54,7 +53,7 @@ Instead of hard-coding things like server, application and sensor name in you me
 Variables are shown as dropdown select boxes at the top of the dashboard. These dropdowns makes it easy to change the data
 being displayed in your dashboard.
 
-Checkout the [Templating]({{< relref "reference/templating.md" >}}) documentation for an introduction to the templating feature and the different
+Checkout the [Templating]({{< relref "../../reference/templating.md" >}}) documentation for an introduction to the templating feature and the different
 types of template variables.
 
 ### Query variable
@@ -85,13 +84,13 @@ Some examples are mentioned below to make nested template queries work successfu
 Query | Description
 ------------ | -------------
 *tag_values(cpu, hostname, env=$env)*  | Return tag values for cpu metric, selected env tag value and tag key hostname
-*tag_values(cpu, hostanme, env=$env, region=$region)* | Return tag values for cpu metric, selected env tag value, selected region tag value and tag key hostname
+*tag_values(cpu, hostname, env=$env, region=$region)* | Return tag values for cpu metric, selected env tag value, selected region tag value and tag key hostname
 
 For details on OpenTSDB metric queries checkout the official [OpenTSDB documentation](http://opentsdb.net/docs/build/html/index.html)
 
-## Configure datasource with provisioning
+## Configure the Datasource with Provisioning
 
-It's now possible to configure datasources using config files with Grafanas provisioning system. You can read more about how it works and all the settings you can set for datasources on the [provisioning docs page](/administration/provisioning/#datasources)
+It's now possible to configure datasources using config files with Grafana's provisioning system. You can read more about how it works and all the settings you can set for datasources on the [provisioning docs page](/administration/provisioning/#datasources)
 
 Here are some provisioning examples for this datasource.
 

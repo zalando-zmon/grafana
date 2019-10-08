@@ -1,20 +1,21 @@
 import _ from 'lodash';
+import { IQService } from 'angular';
 
 export default class ResponseParser {
-  constructor(private $q) {}
+  constructor(private $q: IQService) {}
 
-  processQueryResult(res) {
-    var data = [];
+  processQueryResult(res: any) {
+    const data: any[] = [];
 
     if (!res.data.results) {
-      return { data: data };
+      return { data };
     }
 
-    for (let key in res.data.results) {
-      let queryRes = res.data.results[key];
+    for (const key in res.data.results) {
+      const queryRes = res.data.results[key];
 
       if (queryRes.series) {
-        for (let series of queryRes.series) {
+        for (const series of queryRes.series) {
           data.push({
             target: series.name,
             datapoints: series.points,
@@ -25,7 +26,7 @@ export default class ResponseParser {
       }
 
       if (queryRes.tables) {
-        for (let table of queryRes.tables) {
+        for (const table of queryRes.tables) {
           table.type = 'table';
           table.refId = queryRes.refId;
           table.meta = queryRes.meta;
@@ -37,7 +38,7 @@ export default class ResponseParser {
     return { data: data };
   }
 
-  parseMetricFindQueryResult(refId, results) {
+  parseMetricFindQueryResult(refId: string, results: any) {
     if (!results || results.data.length === 0 || results.data.results[refId].meta.rowCount === 0) {
       return [];
     }
@@ -54,7 +55,7 @@ export default class ResponseParser {
     return this.transformToSimpleList(rows);
   }
 
-  transformToKeyValueList(rows, textColIndex, valueColIndex) {
+  transformToKeyValueList(rows: any, textColIndex: number, valueColIndex: number) {
     const res = [];
 
     for (let i = 0; i < rows.length; i++) {
@@ -66,7 +67,7 @@ export default class ResponseParser {
     return res;
   }
 
-  transformToSimpleList(rows) {
+  transformToSimpleList(rows: any) {
     const res = [];
 
     for (let i = 0; i < rows.length; i++) {
@@ -83,7 +84,7 @@ export default class ResponseParser {
     });
   }
 
-  findColIndex(columns, colName) {
+  findColIndex(columns: any[], colName: string) {
     for (let i = 0; i < columns.length; i++) {
       if (columns[i].text === colName) {
         return i;
@@ -93,7 +94,7 @@ export default class ResponseParser {
     return -1;
   }
 
-  containsKey(res, key) {
+  containsKey(res: any[], key: any) {
     for (let i = 0; i < res.length; i++) {
       if (res[i].text === key) {
         return true;
@@ -102,7 +103,7 @@ export default class ResponseParser {
     return false;
   }
 
-  transformAnnotationResponse(options, data) {
+  transformAnnotationResponse(options: any, data: any) {
     const table = data.data.results[options.annotation.name].tables[0];
 
     let timeColumnIndex = -1;

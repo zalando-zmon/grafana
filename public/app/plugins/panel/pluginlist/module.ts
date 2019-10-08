@@ -1,5 +1,8 @@
 import _ from 'lodash';
 import { PanelCtrl } from '../../../features/panel/panel_ctrl';
+import { auto } from 'angular';
+import { BackendSrv } from '@grafana/runtime';
+import { ContextSrv } from '../../../core/services/context_srv';
 
 class PluginListCtrl extends PanelCtrl {
   static templateUrl = 'module.html';
@@ -7,16 +10,18 @@ class PluginListCtrl extends PanelCtrl {
 
   pluginList: any[];
   viewModel: any;
+  isAdmin: boolean;
 
   // Set and populate defaults
   panelDefaults = {};
 
   /** @ngInject */
-  constructor($scope, $injector, private backendSrv, private $location) {
+  constructor($scope: any, $injector: auto.IInjectorService, private backendSrv: BackendSrv, contextSrv: ContextSrv) {
     super($scope, $injector);
 
     _.defaults(this.panel, this.panelDefaults);
 
+    this.isAdmin = contextSrv.hasRole('Admin');
     this.events.on('init-edit-mode', this.onInitEditMode.bind(this));
     this.pluginList = [];
     this.viewModel = [
@@ -29,22 +34,21 @@ class PluginListCtrl extends PanelCtrl {
   }
 
   onInitEditMode() {
-    this.editorTabIndex = 1;
     this.addEditorTab('Options', 'public/app/plugins/panel/pluginlist/editor.html');
   }
 
-  gotoPlugin(plugin, evt) {
+  gotoPlugin(plugin: { id: any }, evt: any) {
     if (evt) {
       evt.stopPropagation();
     }
     this.$location.url(`plugins/${plugin.id}/edit`);
   }
 
-  updateAvailable(plugin, $event) {
+  updateAvailable(plugin: any, $event: any) {
     $event.stopPropagation();
     $event.preventDefault();
 
-    var modalScope = this.$scope.$new(true);
+    const modalScope = this.$scope.$new(true);
     modalScope.plugin = plugin;
 
     this.publishAppEvent('show-modal', {
@@ -60,7 +64,7 @@ class PluginListCtrl extends PanelCtrl {
       this.viewModel[1].list = _.filter(plugins, { type: 'panel' });
       this.viewModel[2].list = _.filter(plugins, { type: 'datasource' });
 
-      for (let plugin of this.pluginList) {
+      for (const plugin of this.pluginList) {
         if (plugin.hasUpdate) {
           plugin.state = 'has-update';
         } else if (!plugin.enabled) {

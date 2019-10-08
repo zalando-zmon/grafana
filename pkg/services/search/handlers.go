@@ -5,13 +5,23 @@ import (
 
 	"github.com/grafana/grafana/pkg/bus"
 	m "github.com/grafana/grafana/pkg/models"
+	"github.com/grafana/grafana/pkg/registry"
 )
 
-func Init() {
-	bus.AddHandler("search", searchHandler)
+func init() {
+	registry.RegisterService(&SearchService{})
 }
 
-func searchHandler(query *Query) error {
+type SearchService struct {
+	Bus bus.Bus `inject:""`
+}
+
+func (s *SearchService) Init() error {
+	s.Bus.AddHandler(s.searchHandler)
+	return nil
+}
+
+func (s *SearchService) searchHandler(query *Query) error {
 	dashQuery := FindPersistedDashboardsQuery{
 		Title:        query.Title,
 		SignedInUser: query.SignedInUser,
@@ -21,6 +31,7 @@ func searchHandler(query *Query) error {
 		FolderIds:    query.FolderIds,
 		Tags:         query.Tags,
 		Limit:        query.Limit,
+		Page:         query.Page,
 		Permission:   query.Permission,
 	}
 
@@ -33,10 +44,6 @@ func searchHandler(query *Query) error {
 
 	// sort main result array
 	sort.Sort(hits)
-
-	if len(hits) > query.Limit {
-		hits = hits[0:query.Limit]
-	}
 
 	// sort tags
 	for _, hit := range hits {
