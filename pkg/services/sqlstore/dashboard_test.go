@@ -1,6 +1,7 @@
 package sqlstore
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -104,9 +105,8 @@ func TestDashboardDataAccess(t *testing.T) {
 					timesCalled += 1
 					if timesCalled <= 2 {
 						return savedDash.Uid
-					} else {
-						return util.GenerateShortUid()
 					}
+					return util.GenerateShortUID()
 				}
 				cmd := m.SaveDashboardCommand{
 					OrgId: 1,
@@ -119,7 +119,7 @@ func TestDashboardDataAccess(t *testing.T) {
 				err := SaveDashboard(&cmd)
 				So(err, ShouldBeNil)
 
-				generateNewUid = util.GenerateShortUid
+				generateNewUid = util.GenerateShortUID
 			})
 
 			Convey("Should be able to create dashboard", func() {
@@ -181,7 +181,7 @@ func TestDashboardDataAccess(t *testing.T) {
 				So(err, ShouldBeNil)
 				So(query.Result.FolderId, ShouldEqual, 0)
 				So(query.Result.CreatedBy, ShouldEqual, savedDash.CreatedBy)
-				So(query.Result.Created, ShouldEqual, savedDash.Created.Truncate(time.Second))
+				So(query.Result.Created, ShouldHappenWithin, 3*time.Second, savedDash.Created)
 				So(query.Result.UpdatedBy, ShouldEqual, 100)
 				So(query.Result.Updated.IsZero(), ShouldBeFalse)
 			})
@@ -257,6 +257,50 @@ func TestDashboardDataAccess(t *testing.T) {
 				So(hit.Type, ShouldEqual, search.DashHitFolder)
 				So(hit.Url, ShouldEqual, fmt.Sprintf("/dashboards/f/%s/%s", savedFolder.Uid, savedFolder.Slug))
 				So(hit.FolderTitle, ShouldEqual, "")
+			})
+
+			Convey("Should be able to limit search", func() {
+				query := search.FindPersistedDashboardsQuery{
+					OrgId:        1,
+					Limit:        1,
+					SignedInUser: &m.SignedInUser{OrgId: 1, OrgRole: m.ROLE_EDITOR},
+				}
+
+				err := SearchDashboards(&query)
+				So(err, ShouldBeNil)
+
+				So(len(query.Result), ShouldEqual, 1)
+				So(query.Result[0].Title, ShouldEqual, "1 test dash folder")
+			})
+
+			Convey("Should be able to search beyond limit using paging", func() {
+				query := search.FindPersistedDashboardsQuery{
+					OrgId:        1,
+					Limit:        1,
+					Page:         2,
+					SignedInUser: &m.SignedInUser{OrgId: 1, OrgRole: m.ROLE_EDITOR},
+				}
+
+				err := SearchDashboards(&query)
+				So(err, ShouldBeNil)
+
+				So(len(query.Result), ShouldEqual, 1)
+				So(query.Result[0].Title, ShouldEqual, "test dash 23")
+			})
+
+			Convey("Should be able to filter by tag and type", func() {
+				query := search.FindPersistedDashboardsQuery{
+					OrgId:        1,
+					Type:         "dash-db",
+					Tags:         []string{"prod"},
+					SignedInUser: &m.SignedInUser{OrgId: 1, OrgRole: m.ROLE_EDITOR},
+				}
+
+				err := SearchDashboards(&query)
+				So(err, ShouldBeNil)
+
+				So(len(query.Result), ShouldEqual, 3)
+				So(query.Result[0].Title, ShouldEqual, "test dash 23")
 			})
 
 			Convey("Should be able to search for a dashboard folder's children", func() {
@@ -387,10 +431,11 @@ func insertTestDashboardForPlugin(title string, orgId int64, folderId int64, isF
 
 func createUser(name string, role string, isAdmin bool) m.User {
 	setting.AutoAssignOrg = true
+	setting.AutoAssignOrgId = 1
 	setting.AutoAssignOrgRole = role
 
 	currentUserCmd := m.CreateUserCommand{Login: name, Email: name + "@test.com", Name: "a " + name, IsAdmin: isAdmin}
-	err := CreateUser(&currentUserCmd)
+	err := CreateUser(context.Background(), &currentUserCmd)
 	So(err, ShouldBeNil)
 
 	q1 := m.GetUserOrgListQuery{UserId: currentUserCmd.Result.Id}

@@ -1,22 +1,34 @@
 import _ from 'lodash';
 import ResponseParser from './response_parser';
+import { BackendSrv } from 'app/core/services/backend_srv';
+import { IQService } from 'angular';
+import { TemplateSrv } from 'app/features/templating/template_srv';
+import { TimeSrv } from 'app/features/dashboard/services/TimeSrv';
 
 export class MssqlDatasource {
   id: any;
   name: any;
   responseParser: ResponseParser;
+  interval: string;
 
-  /** @ngInject **/
-  constructor(instanceSettings, private backendSrv, private $q, private templateSrv) {
+  /** @ngInject */
+  constructor(
+    instanceSettings: any,
+    private backendSrv: BackendSrv,
+    private $q: IQService,
+    private templateSrv: TemplateSrv,
+    private timeSrv: TimeSrv
+  ) {
     this.name = instanceSettings.name;
     this.id = instanceSettings.id;
     this.responseParser = new ResponseParser(this.$q);
+    this.interval = (instanceSettings.jsonData || {}).timeInterval || '1m';
   }
 
-  interpolateVariable(value, variable) {
+  interpolateVariable(value: any, variable: any) {
     if (typeof value === 'string') {
       if (variable.multi || variable.includeAll) {
-        return "'" + value + "'";
+        return "'" + value.replace(/'/g, `''`) + "'";
       } else {
         return value;
       }
@@ -26,18 +38,18 @@ export class MssqlDatasource {
       return value;
     }
 
-    var quotedValues = _.map(value, function(val) {
+    const quotedValues = _.map(value, val => {
       if (typeof value === 'number') {
         return value;
       }
 
-      return "'" + val + "'";
+      return "'" + val.replace(/'/g, `''`) + "'";
     });
     return quotedValues.join(',');
   }
 
-  query(options) {
-    var queries = _.filter(options.targets, item => {
+  query(options: any) {
+    const queries = _.filter(options.targets, item => {
       return item.hide !== true;
     }).map(item => {
       return {
@@ -67,7 +79,7 @@ export class MssqlDatasource {
       .then(this.responseParser.processQueryResult);
   }
 
-  annotationQuery(options) {
+  annotationQuery(options: any) {
     if (!options.annotation.rawQuery) {
       return this.$q.reject({ message: 'Query missing in annotation definition' });
     }
@@ -89,10 +101,10 @@ export class MssqlDatasource {
           queries: [query],
         },
       })
-      .then(data => this.responseParser.transformAnnotationResponse(options, data));
+      .then((data: any) => this.responseParser.transformAnnotationResponse(options, data));
   }
 
-  metricFindQuery(query, optionalOptions) {
+  metricFindQuery(query: string, optionalOptions: { variable: { name: string } }) {
     let refId = 'tempvar';
     if (optionalOptions && optionalOptions.variable && optionalOptions.variable.name) {
       refId = optionalOptions.variable.name;
@@ -105,15 +117,20 @@ export class MssqlDatasource {
       format: 'table',
     };
 
+    const range = this.timeSrv.timeRange();
+    const data = {
+      queries: [interpolatedQuery],
+      from: range.from.valueOf().toString(),
+      to: range.to.valueOf().toString(),
+    };
+
     return this.backendSrv
       .datasourceRequest({
         url: '/api/tsdb/query',
         method: 'POST',
-        data: {
-          queries: [interpolatedQuery],
-        },
+        data: data,
       })
-      .then(data => this.responseParser.parseMetricFindQueryResult(refId, data));
+      .then((data: any) => this.responseParser.parseMetricFindQueryResult(refId, data));
   }
 
   testDatasource() {
@@ -136,10 +153,10 @@ export class MssqlDatasource {
           ],
         },
       })
-      .then(res => {
+      .then((res: any) => {
         return { status: 'success', message: 'Database Connection OK' };
       })
-      .catch(err => {
+      .catch((err: any) => {
         console.log(err);
         if (err.data && err.data.message) {
           return { status: 'error', message: err.data.message };

@@ -1,22 +1,39 @@
 import _ from 'lodash';
 import ResponseParser from './response_parser';
+import PostgresQuery from 'app/plugins/datasource/postgres/postgres_query';
+import { IQService } from 'angular';
+import { BackendSrv } from 'app/core/services/backend_srv';
+import { TemplateSrv } from 'app/features/templating/template_srv';
+import { TimeSrv } from 'app/features/dashboard/services/TimeSrv';
 
 export class PostgresDatasource {
   id: any;
   name: any;
+  jsonData: any;
   responseParser: ResponseParser;
+  queryModel: PostgresQuery;
+  interval: string;
 
-  /** @ngInject **/
-  constructor(instanceSettings, private backendSrv, private $q, private templateSrv) {
+  /** @ngInject */
+  constructor(
+    instanceSettings: { name: any; id?: any; jsonData?: any },
+    private backendSrv: BackendSrv,
+    private $q: IQService,
+    private templateSrv: TemplateSrv,
+    private timeSrv: TimeSrv
+  ) {
     this.name = instanceSettings.name;
     this.id = instanceSettings.id;
+    this.jsonData = instanceSettings.jsonData;
     this.responseParser = new ResponseParser(this.$q);
+    this.queryModel = new PostgresQuery({});
+    this.interval = (instanceSettings.jsonData || {}).timeInterval || '1m';
   }
 
-  interpolateVariable(value, variable) {
+  interpolateVariable = (value: string, variable: { multi: any; includeAll: any }) => {
     if (typeof value === 'string') {
       if (variable.multi || variable.includeAll) {
-        return "'" + value + "'";
+        return this.queryModel.quoteLiteral(value);
       } else {
         return value;
       }
@@ -26,23 +43,25 @@ export class PostgresDatasource {
       return value;
     }
 
-    var quotedValues = _.map(value, function(val) {
-      return "'" + val + "'";
+    const quotedValues = _.map(value, v => {
+      return this.queryModel.quoteLiteral(v);
     });
     return quotedValues.join(',');
-  }
+  };
 
-  query(options) {
-    var queries = _.filter(options.targets, item => {
-      return item.hide !== true;
-    }).map(item => {
+  query(options: any) {
+    const queries = _.filter(options.targets, target => {
+      return target.hide !== true;
+    }).map(target => {
+      const queryModel = new PostgresQuery(target, this.templateSrv, options.scopedVars);
+
       return {
-        refId: item.refId,
+        refId: target.refId,
         intervalMs: options.intervalMs,
         maxDataPoints: options.maxDataPoints,
         datasourceId: this.id,
-        rawSql: this.templateSrv.replace(item.rawSql, options.scopedVars, this.interpolateVariable),
-        format: item.format,
+        rawSql: queryModel.render(this.interpolateVariable),
+        format: target.format,
       };
     });
 
@@ -63,7 +82,7 @@ export class PostgresDatasource {
       .then(this.responseParser.processQueryResult);
   }
 
-  annotationQuery(options) {
+  annotationQuery(options: any) {
     if (!options.annotation.rawQuery) {
       return this.$q.reject({
         message: 'Query missing in annotation definition',
@@ -87,10 +106,10 @@ export class PostgresDatasource {
           queries: [query],
         },
       })
-      .then(data => this.responseParser.transformAnnotationResponse(options, data));
+      .then((data: any) => this.responseParser.transformAnnotationResponse(options, data));
   }
 
-  metricFindQuery(query, optionalOptions) {
+  metricFindQuery(query: string, optionalOptions: { variable?: any }) {
     let refId = 'tempvar';
     if (optionalOptions && optionalOptions.variable && optionalOptions.variable.name) {
       refId = optionalOptions.variable.name;
@@ -103,16 +122,12 @@ export class PostgresDatasource {
       format: 'table',
     };
 
-    var data = {
+    const range = this.timeSrv.timeRange();
+    const data = {
       queries: [interpolatedQuery],
+      from: range.from.valueOf().toString(),
+      to: range.to.valueOf().toString(),
     };
-
-    if (optionalOptions && optionalOptions.range && optionalOptions.range.from) {
-      data['from'] = optionalOptions.range.from.valueOf().toString();
-    }
-    if (optionalOptions && optionalOptions.range && optionalOptions.range.to) {
-      data['to'] = optionalOptions.range.to.valueOf().toString();
-    }
 
     return this.backendSrv
       .datasourceRequest({
@@ -120,33 +135,23 @@ export class PostgresDatasource {
         method: 'POST',
         data: data,
       })
-      .then(data => this.responseParser.parseMetricFindQueryResult(refId, data));
+      .then((data: any) => this.responseParser.parseMetricFindQueryResult(refId, data));
+  }
+
+  getVersion() {
+    return this.metricFindQuery("SELECT current_setting('server_version_num')::int/100", {});
+  }
+
+  getTimescaleDBVersion() {
+    return this.metricFindQuery("SELECT extversion FROM pg_extension WHERE extname = 'timescaledb'", {});
   }
 
   testDatasource() {
-    return this.backendSrv
-      .datasourceRequest({
-        url: '/api/tsdb/query',
-        method: 'POST',
-        data: {
-          from: '5m',
-          to: 'now',
-          queries: [
-            {
-              refId: 'A',
-              intervalMs: 1,
-              maxDataPoints: 1,
-              datasourceId: this.id,
-              rawSql: 'SELECT 1',
-              format: 'table',
-            },
-          ],
-        },
-      })
-      .then(res => {
+    return this.metricFindQuery('SELECT 1', {})
+      .then((res: any) => {
         return { status: 'success', message: 'Database Connection OK' };
       })
-      .catch(err => {
+      .catch((err: any) => {
         console.log(err);
         if (err.data && err.data.message) {
           return { status: 'error', message: err.data.message };

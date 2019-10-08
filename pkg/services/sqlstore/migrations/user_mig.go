@@ -1,6 +1,12 @@
 package migrations
 
-import . "github.com/grafana/grafana/pkg/services/sqlstore/migrator"
+import (
+	"fmt"
+
+	"github.com/go-xorm/xorm"
+	. "github.com/grafana/grafana/pkg/services/sqlstore/migrator"
+	"github.com/grafana/grafana/pkg/util"
+)
 
 func addUserMigrations(mg *Migrator) {
 	userV1 := Table{
@@ -107,4 +113,43 @@ func addUserMigrations(mg *Migrator) {
 	mg.AddMigration("Add last_seen_at column to user", NewAddColumnMigration(userV2, &Column{
 		Name: "last_seen_at", Type: DB_DateTime, Nullable: true,
 	}))
+
+	// Adds salt & rands for old users who used ldap or oauth
+	mg.AddMigration("Add missing user data", &AddMissingUserSaltAndRandsMigration{})
+
+	// is_disabled indicates whether user disabled or not. Disabled user should not be able to log in.
+	// This field used in couple with LDAP auth to disable users removed from LDAP rather than delete it immediately.
+	mg.AddMigration("Add is_disabled column to user", NewAddColumnMigration(userV2, &Column{
+		Name: "is_disabled", Type: DB_Bool, Nullable: false, Default: "0",
+	}))
+}
+
+type AddMissingUserSaltAndRandsMigration struct {
+	MigrationBase
+}
+
+func (m *AddMissingUserSaltAndRandsMigration) Sql(dialect Dialect) string {
+	return "code migration"
+}
+
+type TempUserDTO struct {
+	Id    int64
+	Login string
+}
+
+func (m *AddMissingUserSaltAndRandsMigration) Exec(sess *xorm.Session, mg *Migrator) error {
+	users := make([]*TempUserDTO, 0)
+
+	err := sess.SQL(fmt.Sprintf("SELECT id, login from %s WHERE rands = ''", mg.Dialect.Quote("user"))).Find(&users)
+	if err != nil {
+		return err
+	}
+
+	for _, user := range users {
+		_, err := sess.Exec("UPDATE "+mg.Dialect.Quote("user")+" SET salt = ?, rands = ? WHERE id = ?", util.GetRandomString(10), util.GetRandomString(10), user.Id)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

@@ -57,8 +57,10 @@ Sparklines are a great way of seeing the historical data related to the summary 
 
 1. **Show**: The show checkbox will toggle whether the spark line is shown in the Panel. When unselected, only the Singlestat value will appear.
 2. **Full Height**: Check if you want the sparklines to take up the full panel height, or uncheck if they should be below the main Singlestat value.
-3. **Line Color**: This color selection applies to the color of the sparkline itself.
-4. **Fill Color**: This color selection applies to the area below the sparkline.
+3. **Y-Min**: The minimum Y value. (default auto)
+4. **Y-Max**: The maximum Y value. (default auto)
+5. **Line Color**: This color selection applies to the color of the sparkline itself.
+6. **Fill Color**: This color selection applies to the area below the sparkline.
 
 <div class="clearfix"></div>
 
@@ -77,11 +79,11 @@ Gauges gives a clear picture of how high a value is in it's context. It's a grea
 
 <div class="clearfix"></div>
 
-### Value to text mapping
+### Value/Range to text mapping
 
 {{< docs-imagebox img="/img/docs/v45/singlestat-value-mapping.png" class="docs-image--right docs-image--no-shadow">}}
 
-Value to text mapping allows you to translate the value of the summary stat into explicit text. The text will respect all styling, thresholds and customization defined for the value. This can be useful to translate the number of the main Singlestat value into a context-specific human-readable word or message.
+Value/Range to text mapping allows you to translate the value of the summary stat into explicit text. The text will respect all styling, thresholds and customization defined for the value. This can be useful to translate the number of the main Singlestat value into a context-specific human-readable word or message.
 
 <div class="clearfix"></div>
 

@@ -24,6 +24,7 @@ func GetAnnotations(c *m.ReqContext) Response {
 		Limit:       c.QueryInt64("limit"),
 		Tags:        c.QueryStrings("tags"),
 		Type:        c.Query("type"),
+		MatchAny:    c.QueryBool("matchAny"),
 	}
 
 	repo := annotations.GetRepository()
@@ -37,7 +38,6 @@ func GetAnnotations(c *m.ReqContext) Response {
 		if item.Email != "" {
 			item.AvatarUrl = dtos.GetGravatarUrl(item.Email)
 		}
-		item.Time = item.Time
 	}
 
 	return JSON(200, items)
@@ -210,11 +210,72 @@ func UpdateAnnotation(c *m.ReqContext, cmd dtos.UpdateAnnotationsCmd) Response {
 	return Success("Annotation updated")
 }
 
+func PatchAnnotation(c *m.ReqContext, cmd dtos.PatchAnnotationsCmd) Response {
+	annotationID := c.ParamsInt64(":annotationId")
+
+	repo := annotations.GetRepository()
+
+	if resp := canSave(c, repo, annotationID); resp != nil {
+		return resp
+	}
+
+	items, err := repo.Find(&annotations.ItemQuery{AnnotationId: annotationID, OrgId: c.OrgId})
+
+	if err != nil || len(items) == 0 {
+		return Error(404, "Could not find annotation to update", err)
+	}
+
+	existing := annotations.Item{
+		OrgId:    c.OrgId,
+		UserId:   c.UserId,
+		Id:       annotationID,
+		Epoch:    items[0].Time,
+		Text:     items[0].Text,
+		Tags:     items[0].Tags,
+		RegionId: items[0].RegionId,
+	}
+
+	if cmd.Tags != nil {
+		existing.Tags = cmd.Tags
+	}
+
+	if cmd.Text != "" && cmd.Text != existing.Text {
+		existing.Text = cmd.Text
+	}
+
+	if cmd.Time > 0 && cmd.Time != existing.Epoch {
+		existing.Epoch = cmd.Time
+	}
+
+	if err := repo.Update(&existing); err != nil {
+		return Error(500, "Failed to update annotation", err)
+	}
+
+	// Update region end time if provided
+	if existing.RegionId != 0 && cmd.TimeEnd > 0 {
+		itemRight := existing
+		itemRight.RegionId = existing.Id
+		itemRight.Epoch = cmd.TimeEnd
+
+		// We don't know id of region right event, so set it to 0 and find then using query like
+		// ... WHERE region_id = <item.RegionId> AND id != <item.RegionId> ...
+		itemRight.Id = 0
+
+		if err := repo.Update(&itemRight); err != nil {
+			return Error(500, "Failed to update annotation for region end time", err)
+		}
+	}
+
+	return Success("Annotation patched")
+}
+
 func DeleteAnnotations(c *m.ReqContext, cmd dtos.DeleteAnnotationsCmd) Response {
 	repo := annotations.GetRepository()
 
 	err := repo.Delete(&annotations.DeleteParams{
-		AlertId:     cmd.PanelId,
+		OrgId:       c.OrgId,
+		Id:          cmd.AnnotationId,
+		RegionId:    cmd.RegionId,
 		DashboardId: cmd.DashboardId,
 		PanelId:     cmd.PanelId,
 	})
@@ -235,7 +296,8 @@ func DeleteAnnotationByID(c *m.ReqContext) Response {
 	}
 
 	err := repo.Delete(&annotations.DeleteParams{
-		Id: annotationID,
+		OrgId: c.OrgId,
+		Id:    annotationID,
 	})
 
 	if err != nil {
@@ -254,6 +316,7 @@ func DeleteAnnotationRegion(c *m.ReqContext) Response {
 	}
 
 	err := repo.Delete(&annotations.DeleteParams{
+		OrgId:    c.OrgId,
 		RegionId: regionID,
 	})
 
@@ -269,9 +332,9 @@ func canSaveByDashboardID(c *m.ReqContext, dashboardID int64) (bool, error) {
 		return false, nil
 	}
 
-	if dashboardID > 0 {
-		guardian := guardian.New(dashboardID, c.OrgId, c.SignedInUser)
-		if canEdit, err := guardian.CanEdit(); err != nil || !canEdit {
+	if dashboardID != 0 {
+		guard := guardian.New(dashboardID, c.OrgId, c.SignedInUser)
+		if canEdit, err := guard.CanEdit(); err != nil || !canEdit {
 			return false, err
 		}
 	}
@@ -281,22 +344,6 @@ func canSaveByDashboardID(c *m.ReqContext, dashboardID int64) (bool, error) {
 
 func canSave(c *m.ReqContext, repo annotations.Repository, annotationID int64) Response {
 	items, err := repo.Find(&annotations.ItemQuery{AnnotationId: annotationID, OrgId: c.OrgId})
-
-	if err != nil || len(items) == 0 {
-		return Error(500, "Could not find annotation to update", err)
-	}
-
-	dashboardID := items[0].DashboardId
-
-	if canSave, err := canSaveByDashboardID(c, dashboardID); err != nil || !canSave {
-		return dashboardGuardianResponse(err)
-	}
-
-	return nil
-}
-
-func canSaveByRegionID(c *m.ReqContext, repo annotations.Repository, regionID int64) Response {
-	items, err := repo.Find(&annotations.ItemQuery{RegionId: regionID, OrgId: c.OrgId})
 
 	if err != nil || len(items) == 0 {
 		return Error(500, "Could not find annotation to update", err)

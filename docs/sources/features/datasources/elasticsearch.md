@@ -29,13 +29,19 @@ Name | Description
 *Name* | The data source name. This is how you refer to the data source in panels & queries.
 *Default* | Default data source means that it will be pre-selected for new panels.
 *Url* | The HTTP protocol, IP, and port of your Elasticsearch server.
-*Access* | Proxy = access via Grafana backend, Direct = access directly from browser.
+*Access* | Server (default) = URL needs to be accessible from the Grafana backend/server, Browser = URL needs to be accessible from the browser.
 
-Proxy access means that the Grafana backend will proxy all requests from the browser, and send them on to the Data Source. This is useful because it can eliminate CORS (Cross Origin Site Resource) issues, as well as eliminate the need to disseminate authentication to the browser.
+Access mode controls how requests to the data source will be handled. Server should be the preferred way if nothing else stated.
 
-### Direct access
+### Server access mode (Default)
 
-If you select direct access you must update your Elasticsearch configuration to allow other domains to access
+All requests will be made from the browser to Grafana backend/server which in turn will forward the requests to the data source and by that circumvent possible Cross-Origin Resource Sharing (CORS) requirements. The URL needs to be accessible from the grafana backend/server if you select this access mode.
+
+### Browser (Direct) access
+
+All requests will be made from the browser directly to the data source and may be subject to Cross-Origin Resource Sharing (CORS) requirements. The URL needs to be accessible from the browser if you select this access mode.
+
+If you select Browser access you must update your Elasticsearch configuration to allow other domains to access
 Elasticsearch from the browser. You do this by specifying these to options in your **elasticsearch.yml** config file.
 
 ```bash
@@ -45,17 +51,19 @@ http.cors.allow-origin: "*"
 
 ### Index settings
 
-![](/img/docs/elasticsearch/elasticsearch_ds_details.png)
+![Elasticsearch Datasource Details](/img/docs/elasticsearch/elasticsearch_ds_details.png)
 
 Here you can specify a default for the `time field` and specify the name of your Elasticsearch index. You can use
 a time pattern for the index name or a wildcard.
 
 ### Elasticsearch version
 
-Be sure to specify your Elasticsearch version in the version selection dropdown. This is very important as there are differences how queries are composed. Currently only 2.x and 5.x
-are supported.
+Be sure to specify your Elasticsearch version in the version selection dropdown. This is very important as there are differences on how queries are composed.
+Currently the versions available are `2.x`, `5.x`, `5.6+`, `6.0+` or `7.0+`. The value `5.6+` means version 5.6 or higher, but lower than  6.0. The value `6.0+` means
+version 6.0 or higher, but lower than 7.0. Finally, `7.0+` means version 7.0 or higher, but lower than 8.0.
 
 ### Min time interval
+
 A lower limit for the auto group by time interval. Recommended to be set to write frequency, for example `1m` if your data is written every minute.
 This option can also be overridden/configured in a dashboard panel under data source options. It's important to note that this value **needs** to be formatted as a
 number followed by a valid time identifier, e.g. `1m` (1 minute) or `30s` (30 seconds). The following time identifiers are supported:
@@ -71,9 +79,21 @@ Identifier | Description
 `s`   | second
 `ms`  | millisecond
 
+### Logs (BETA)
+
+> Only available in Grafana v6.3+.
+
+There are two parameters, `Message field name` and `Level field name`, that can optionally be configured from the data source settings page that determine
+which fields will be used for log messages and log levels when visualizing logs in [Explore](/features/explore).
+
+For example, if you're using a default setup of Filebeat for shipping logs to Elasticsearch the following configuration should work:
+
+- **Message field name:**  message
+- **Level field name:** fields.level
+
 ## Metric Query editor
 
-![](/img/docs/elasticsearch/query_editor.png)
+![Elasticsearch Query Editor](/img/docs/elasticsearch/query_editor.png)
 
 The Elasticsearch query editor allows you to select multiple metrics and group by multiple terms or filters. Use the plus and minus icons to the right to add/remove
 metrics or group by clauses. Some metrics and group by clauses haves options, click the option text to expand the row to view and edit metric or group by options.
@@ -100,7 +120,7 @@ Instead of hard-coding things like server, application and sensor name in you me
 Variables are shown as dropdown select boxes at the top of the dashboard. These dropdowns makes it easy to change the data
 being displayed in your dashboard.
 
-Checkout the [Templating]({{< relref "reference/templating.md" >}}) documentation for an introduction to the templating feature and the different
+Checkout the [Templating]({{< relref "../../reference/templating.md" >}}) documentation for an introduction to the templating feature and the different
 types of template variables.
 
 ### Query variable
@@ -109,8 +129,8 @@ The Elasticsearch data source supports two types of queries you can use in the *
 
 Query | Description
 ------------ | -------------
-*{"find": "fields", "type": "keyword"} | Returns a list of field names with the index type `keyword`.
-*{"find": "terms", "field": "@hostname", "size": 1000}* |  Returns a list of values for a field using term aggregation. Query will user current dashboard time range as time range for query.
+*{"find": "fields", "type": "keyword"}* | Returns a list of field names with the index type `keyword`.
+*{"find": "terms", "field": "@hostname", "size": 1000}* |  Returns a list of values for a field using term aggregation. Query will use current dashboard time range as time range for query.
 *{"find": "terms", "field": "@hostname", "query": '<lucene query>'}* | Returns a list of values for a field using term aggregation & and a specified lucene query filter. Query will use current dashboard time range as time range for query.
 
 There is a default size limit of 500 on terms queries. Set the size property in your query to set a custom limit.
@@ -154,9 +174,31 @@ Time | The name of the time field, needs to be date field.
 Text | Event description field.
 Tags | Optional field name to use for event tags (can be an array or a CSV string).
 
-## Configure datasource with provisioning
+## Querying Logs (BETA)
 
-It's now possible to configure datasources using config files with Grafanas provisioning system. You can read more about how it works and all the settings you can set for datasources on the [provisioning docs page](/administration/provisioning/#datasources)
+> Only available in Grafana v6.3+.
+
+Querying and displaying log data from Elasticsearch is available via [Explore](/features/explore).
+
+![](/img/docs/v63/elasticsearch_explore_logs.png)
+
+Select the Elasticsearch data source, change to Logs using the Metrics/Logs switcher, and then optionally enter a lucene query into the query field to filter the log messages.
+
+Finally, press the `Enter` key or the `Run Query` button to display your logs.
+
+### Log Queries
+
+Once the result is returned, the log panel shows a list of log rows and a bar chart where the x-axis shows the time and the y-axis shows the frequency/count.
+
+Note that the fields used for log message and level is based on an [optional datasource configuration](#logs-beta).
+
+### Filter Log Messages
+
+Optionally enter a lucene query into the query field to filter the log messages. For example, using a default Filebeat setup you should be able to use `fields.level:error` to only show error log messages.
+
+## Configure the Datasource with Provisioning
+
+It's now possible to configure datasources using config files with Grafana's provisioning system. You can read more about how it works and all the settings you can set for datasources on the [provisioning docs page](/administration/provisioning/#datasources)
 
 Here are some provisioning examples for this datasource.
 
@@ -172,4 +214,23 @@ datasources:
     jsonData:
       interval: Daily
       timeField: "@timestamp"
+```
+
+or, for logs:
+
+```yaml
+apiVersion: 1
+
+datasources:
+  - name: elasticsearch-v7-filebeat
+    type: elasticsearch
+    access: proxy
+    database: "[filebeat-]YYYY.MM.DD"
+    url: http://localhost:9200
+    jsonData:
+      interval: Daily
+      timeField: "@timestamp"
+      esVersion: 70
+      logMessageField: message
+      logLevelField: fields.level
 ```

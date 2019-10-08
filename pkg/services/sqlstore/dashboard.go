@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/grafana/grafana/pkg/bus"
-	"github.com/grafana/grafana/pkg/metrics"
+	"github.com/grafana/grafana/pkg/infra/metrics"
 	m "github.com/grafana/grafana/pkg/models"
 	"github.com/grafana/grafana/pkg/services/search"
 	"github.com/grafana/grafana/pkg/util"
@@ -24,9 +24,10 @@ func init() {
 	bus.AddHandler("sql", GetDashboardPermissionsForUser)
 	bus.AddHandler("sql", GetDashboardsBySlug)
 	bus.AddHandler("sql", ValidateDashboardBeforeSave)
+	bus.AddHandler("sql", HasEditPermissionInFolders)
 }
 
-var generateNewUid func() string = util.GenerateShortUid
+var generateNewUid func() string = util.GenerateShortUID
 
 func SaveDashboard(cmd *m.SaveDashboardCommand) error {
 	return inTransaction(func(sess *DBSession) error {
@@ -77,7 +78,7 @@ func saveDashboard(sess *DBSession, cmd *m.SaveDashboardCommand) error {
 	}
 
 	parentVersion := dash.Version
-	affectedRows := int64(0)
+	var affectedRows int64
 	var err error
 
 	if dash.Id == 0 {
@@ -86,7 +87,7 @@ func saveDashboard(sess *DBSession, cmd *m.SaveDashboardCommand) error {
 		dash.CreatedBy = userId
 		dash.Updated = time.Now()
 		dash.UpdatedBy = userId
-		metrics.M_Api_Dashboard_Insert.Inc()
+		metrics.MApiDashboardInsert.Inc()
 		affectedRows, err = sess.Insert(dash)
 	} else {
 		dash.SetVersion(dash.Version + 1)
@@ -196,12 +197,7 @@ type DashboardSearchProjection struct {
 }
 
 func findDashboards(query *search.FindPersistedDashboardsQuery) ([]DashboardSearchProjection, error) {
-	limit := query.Limit
-	if limit == 0 {
-		limit = 1000
-	}
-
-	sb := NewSearchBuilder(query.SignedInUser, limit, query.Permission).
+	sb := NewSearchBuilder(query.SignedInUser, query.Limit, query.Page, query.Permission).
 		WithTags(query.Tags).
 		WithDashboardIdsIn(query.DashboardIds)
 
@@ -224,7 +220,7 @@ func findDashboards(query *search.FindPersistedDashboardsQuery) ([]DashboardSear
 	var res []DashboardSearchProjection
 
 	sql, params := sb.ToSql()
-	err := x.Sql(sql, params...).Find(&res)
+	err := x.SQL(sql, params...).Find(&res)
 	if err != nil {
 		return nil, err
 	}
@@ -294,10 +290,11 @@ func GetDashboardTags(query *m.GetDashboardTagsQuery) error {
 					FROM dashboard
 					INNER JOIN dashboard_tag on dashboard_tag.dashboard_id = dashboard.id
 					WHERE dashboard.org_id=?
-					GROUP BY term`
+					GROUP BY term
+					ORDER BY term`
 
 	query.Result = make([]*m.DashboardTagCloudItem, 0)
-	sess := x.Sql(sql, query.OrgId)
+	sess := x.SQL(sql, query.OrgId)
 	err := sess.Find(&query.Result)
 	return err
 }
@@ -318,20 +315,39 @@ func DeleteDashboard(cmd *m.DeleteDashboardCommand) error {
 			"DELETE FROM dashboard WHERE id = ?",
 			"DELETE FROM playlist_item WHERE type = 'dashboard_by_id' AND value = ?",
 			"DELETE FROM dashboard_version WHERE dashboard_id = ?",
-			"DELETE FROM dashboard WHERE folder_id = ?",
 			"DELETE FROM annotation WHERE dashboard_id = ?",
 			"DELETE FROM dashboard_provisioning WHERE dashboard_id = ?",
 		}
 
-		for _, sql := range deletes {
-			_, err := sess.Exec(sql, dashboard.Id)
+		if dashboard.IsFolder {
+			deletes = append(deletes, "DELETE FROM dashboard_provisioning WHERE dashboard_id in (select id from dashboard where folder_id = ?)")
+			deletes = append(deletes, "DELETE FROM dashboard WHERE folder_id = ?")
+
+			dashIds := []struct {
+				Id int64
+			}{}
+			err := sess.SQL("select id from dashboard where folder_id = ?", dashboard.Id).Find(&dashIds)
 			if err != nil {
 				return err
+			}
+
+			for _, id := range dashIds {
+				if err := deleteAlertDefinition(id.Id, sess); err != nil {
+					return nil
+				}
 			}
 		}
 
 		if err := deleteAlertDefinition(dashboard.Id, sess); err != nil {
 			return nil
+		}
+
+		for _, sql := range deletes {
+			_, err := sess.Exec(sql, dashboard.Id)
+
+			if err != nil {
+				return err
+			}
 		}
 
 		return nil
@@ -411,7 +427,7 @@ func GetDashboardPermissionsForUser(query *m.GetDashboardPermissionsForUserQuery
 	params = append(params, query.UserId)
 	params = append(params, dialect.BooleanStr(false))
 
-	err := x.Sql(sql, params...).Find(&query.Result)
+	err := x.SQL(sql, params...).Find(&query.Result)
 
 	for _, p := range query.Result {
 		p.PermissionName = p.Permission.String()
@@ -613,4 +629,28 @@ func ValidateDashboardBeforeSave(cmd *m.ValidateDashboardBeforeSaveCommand) (err
 
 		return nil
 	})
+}
+
+func HasEditPermissionInFolders(query *m.HasEditPermissionInFoldersQuery) error {
+	if query.SignedInUser.HasRole(m.ROLE_EDITOR) {
+		query.Result = true
+		return nil
+	}
+
+	builder := &SqlBuilder{}
+	builder.Write("SELECT COUNT(dashboard.id) AS count FROM dashboard WHERE dashboard.org_id = ? AND dashboard.is_folder = ?", query.SignedInUser.OrgId, dialect.BooleanStr(true))
+	builder.writeDashboardPermissionFilter(query.SignedInUser, m.PERMISSION_EDIT)
+
+	type folderCount struct {
+		Count int64
+	}
+
+	resp := make([]*folderCount, 0)
+	if err := x.SQL(builder.GetSqlString(), builder.params...).Find(&resp); err != nil {
+		return err
+	}
+
+	query.Result = len(resp) > 0 && resp[0].Count > 0
+
+	return nil
 }
