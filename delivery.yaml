@@ -1,0 +1,17 @@
+version: "2017-09-20"
+pipeline:
+  - id: build
+    type: script
+    commands:
+      - desc: "Push Docker Image"
+        cmd: |
+          IS_PR_BUILD=${CDP_PULL_REQUEST_NUMBER+"true"}
+          if [[ ${IS_PR_BUILD} != "true" ]]
+          then
+            RELEASE_VERSION=$(git describe --tags --always --dirty)
+            AGENT_IMAGE=registry-write.opensource.zalan.do/zalando-zmon/grafana:${RELEASE_VERSION}
+          else
+            AGENT_IMAGE=registry-write.opensource.zalan.do/zalando-zmon/grafana-unstable:${CDP_BUILD_VERSION}
+          fi
+          docker build --tag "$AGENT_IMAGE" .
+          docker push "$AGENT_IMAGE"
